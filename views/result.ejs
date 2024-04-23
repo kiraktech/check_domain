@@ -1,0 +1,37 @@
+<head>
+  <%- include('./style'); %>
+</head>
+
+<h1>Kết Quả Crawl Bảng Dữ Liệu</h1>
+<div id="tables-container"></div>
+
+<div id="progress"></div>
+
+<% if (dataList?.length) { %>
+<table>
+  <thead>
+    <th>Domain</th>
+    <th>Loại tên miền</th>
+    <th>Tên chủ thể đăng ký sử dụng</th>
+    <th>Nhà đăng ký quản lý</th>
+    <th>Nhà đăng ký quản lý</th>
+    <th>Ngày hết hạn</th>
+  </thead>
+  <tbody>
+    <% dataList.forEach(data=> { %>
+    <tr>
+      <td>
+        <%= data.url %>
+      </td>
+      <% if (data?.data?.length) {%>
+      <% data.data.forEach(row=> { %>
+      <td>
+        <%= row %>
+      </td>
+      <% }) %>
+      <% } %>
+    </tr>
+    <% }) %>
+  </tbody>
+</table>
+<% } %>
