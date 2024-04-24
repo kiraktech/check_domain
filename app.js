@@ -4,6 +4,7 @@ const path = require('path')
 const xlsx = require('xlsx');
 const multer = require('multer')
 const upload = multer({ dest: 'uploads/' })
+const fs = require('fs-extra')
 
 var app = express();
 app.use(bodyParser.json());
@@ -64,6 +65,22 @@ app.post('/upload', upload.single('file'), async (req, res) => {
 //       currentPage: page
 //   });
 // });
+
+app.get('/download', (req, res) => {
+  const filePath = './exported_data.xlsx'; // Specify the path to your file here
+  const fileName = 'exported_data.xlsx'; // Specify the name of the file here
+
+  const fileStream = fs.createReadStream(filePath);
+  fileStream.on('error', (err) => {
+    res.status(404).send('File not found');
+  });
+
+  res.setHeader('Content-disposition', 'attachment; filename=' + fileName);
+  res.setHeader('Content-type', 'text/plain'); // Set the appropriate content type
+
+  fileStream.pipe(res);
+})
+
 
 app.listen(port, () => {
   console.log(`Example app listening on port ${port}`)
