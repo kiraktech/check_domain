@@ -3,5 +3,4 @@ uploads/*
 config.json
 cred.json
 .env
-.env.*
 exported_data.xlsx

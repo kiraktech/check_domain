@@ -5,6 +5,12 @@ const puppeteer = require('puppeteer')
 // const JWT = require('google-auth-library');
 const fs = require('fs-extra')
 const xlsx = require('xlsx');
+const path = require('path')
+const nodemailer = require('nodemailer');
+require('dotenv').config()
+const { v4: uuidv4 } = require('uuid');
+
+const timestamp = Date.now();
 
 const puppeteerOptions = {
   headless: true,
@@ -22,96 +28,40 @@ const puppeteerOptions = {
   ],
 }
 
-// const serviceAccountAuth = new JWT.JWT({
-//   email: creds.client_email,
-//   key: creds.private_key,
-//   scopes: [
-//     'https://www.googleapis.com/auth/spreadsheets',
-//   ],
-// });
+// Queue to store form submissions
+const formQueue = [];
 
-// loadDoc = async () => {
-//   console.log("Loading data from google sheet: START");
-//   const doc = new GoogleSpreadsheet(Cnf.google_sheet_id, serviceAccountAuth);
-//   // const doc = new GoogleSpreadsheet(Cnf.google_sheet_id);
-//   // await doc.useServiceAccountAuth(creds);
-//   await doc.loadInfo();
-//   defaultSheet = doc.sheetsByIndex[parseInt(Cnf.google_sheet_index)];
-//   await defaultSheet.loadCells();
-//   const lines = await defaultSheet.getRows();
-//   console.log("Loading data from google sheet: DONE");
-//   return lines;
-// };
+// Function to process the next form in the queue
+const processNextForm = () => {
+  if (formQueue.length > 0) {
+    const nextForm = formQueue.shift();
+    nextForm();
+  }
+};
 
-const handleDataWithFile = (tableData) => {
-  const filePath = 'tableData.json';
-
+/**
+ * The function `handleDataWithFile` reads and merges table data into a JSON file if it exists,
+ * otherwise creates a new file with the data.
+ * @param tableData - The `tableData` parameter in the `handleDataWithFile` function is the data that
+ * you want to save or append to a JSON file. It could be an object, an array, or any structured data
+ * that you want to store persistently in a file named `tableData.json`. The
+ */
+const handleDataWithFile = (tableData, tableDataFilePath) => {
   // Kiểm tra file tồn tại
-  if (fs.existsSync(filePath)) {
+  if (fs.existsSync(tableDataFilePath)) {
     // Đọc dữ liệu cũ
-    const oldData = JSON.parse(fs.readFileSync(filePath, 'utf-8'));
+    const oldData = JSON.parse(fs.readFileSync(tableDataFilePath, 'utf-8'));
     // Gộp dữ liệu mới vào dữ liệu cũ
     const newData = oldData.concat({ ...tableData });
     // Lưu gộp dữ liệu vào file
-    fs.writeFileSync(filePath, JSON.stringify(newData, null, 2), 'utf-8');
+    fs.writeFileSync(tableDataFilePath, JSON.stringify(newData, null, 2), 'utf-8');
   } else {
     // Nếu file không tồn tại, tạo mới với dữ liệu mới
-    fs.writeFileSync(filePath, JSON.stringify({ ...tableData }, null, 2), 'utf-8');
+    fs.writeFileSync(tableDataFilePath, JSON.stringify({ ...tableData }, null, 2), 'utf-8');
   }
 }
 
-const showDataOnPage = () => {
-  document.addEventListener('DOMContentLoaded', function () {
-    fetch('tableData.json')
-      .then(response => response.json())
-      .then(dataArray => {
-        const container = document.getElementById('tables-container');
-
-        dataArray.forEach((tableData, index) => {
-          // Tạo bảng và các phần tử liên quan
-          const table = document.createElement('table');
-          const thead = document.createElement('thead');
-          const tbody = document.createElement('tbody');
-          const trHead = document.createElement('tr');
-
-          // Giả sử cột đầu tiên là tiêu đề
-          if (tableData.length > 0) {
-            tableData[0].forEach(header => {
-              const th = document.createElement('th');
-              th.textContent = header;
-              trHead.appendChild(th);
-            });
-            thead.appendChild(trHead);
-            table.appendChild(thead);
-          }
-
-          // Thêm dữ liệu vào từng hàng
-          tableData.slice(1).forEach(rowData => {
-            const tr = document.createElement('tr');
-            rowData.forEach(cellData => {
-              const td = document.createElement('td');
-              td.textContent = cellData;
-              tr.appendChild(td);
-            });
-            tbody.appendChild(tr);
-          });
-
-          table.appendChild(tbody);
-          container.appendChild(table);
-
-          // Tùy chọn: Thêm một khoảng cách hoặc phân cách giữa các bảng
-          if (index < dataArray.length - 1) {
-            const divider = document.createElement('div');
-            divider.style.margin = '20px 0';
-            container.appendChild(divider);
-          }
-        });
-      })
-      .catch(error => console.error('Error loading table data:', error));
-  });
-}
-
-async function crawl(page, url) {
+async function crawl(page, url, tableDataFilePath) {
   if (!url) return { url: '', data: [] }
   // Launch the browser and open a new blank page
 
@@ -146,77 +96,143 @@ async function crawl(page, url) {
   console.log(tableData.url)
   console.table(tableData.data)
 
-  handleDataWithFile(tableData);
-
-  // showDataOnPage(tableData)
-
+  handleDataWithFile(tableData, tableDataFilePath);
 
   return tableData
 };
 
-const exportFile = () => {
-  fs.readFile('tableData.json', 'utf8', (err, data) => {
-    if (err) {
-      console.error("Error reading JSON file:", err);
-      return;
-    }
+const exportFile = (exportfileName, tableDataFilePath) => {
+  return new Promise((resolve, reject) => {
+    fs.readFile(tableDataFilePath, 'utf8', (err, data) => {
+      if (err) {
+        console.error("Error reading JSON file:", err);
+        return;
+      }
 
-    try {
-      const jsonData = JSON.parse(data);
+      try {
+        const jsonData = JSON.parse(data);
 
-      const wb = xlsx.utils.book_new();
-      const ws = xlsx.utils.aoa_to_sheet([]);
+        const wb = xlsx.utils.book_new();
+        const ws = xlsx.utils.aoa_to_sheet([]);
 
-      // Add headers
-      xlsx.utils.sheet_add_aoa(ws, [
-        ['Domain', 'Loại tên miền', 'Tên chủ thể đăng ký sử dụng', 'Nhà đăng ký quản lý', 'Ngày đăng ký', 'Ngày hết hạn']
-      ]);
+        // Add headers
+        xlsx.utils.sheet_add_aoa(ws, [
+          ['Domain', 'Loại tên miền', 'Tên chủ thể đăng ký sử dụng', 'Nhà đăng ký quản lý', 'Ngày đăng ký', 'Ngày hết hạn']
+        ]);
 
-      const columnWidths = [
-        { wch: 30 }, // Domain
-        { wch: 30 }, // Loại tên miền
-        { wch: 30 }, // Tên chủ thể đăng ký sử dụng
-        { wch: 30 }, // Nhà đăng ký quản lý
-        { wch: 30 },  // Ngày đăng ký
-        { wch: 30 }  // Ngày hết hạn
-      ];
-      ws['!cols'] = columnWidths;
+        const columnWidths = [
+          { wch: 30 }, // Domain
+          { wch: 30 }, // Loại tên miền
+          { wch: 30 }, // Tên chủ thể đăng ký sử dụng
+          { wch: 30 }, // Nhà đăng ký quản lý
+          { wch: 30 },  // Ngày đăng ký
+          { wch: 30 }  // Ngày hết hạn
+        ];
+        ws['!cols'] = columnWidths;
 
-      // Add data to worksheet
-      jsonData.forEach((item, index) => {
-        const row = [item.url, ...item.data];
-        xlsx.utils.sheet_add_aoa(ws, [row], { origin: -1 });
-      });
+        // Add data to worksheet
+        jsonData.forEach((item, index) => {
+          const row = [item.url, ...item.data];
+          xlsx.utils.sheet_add_aoa(ws, [row], { origin: -1 });
+        });
 
-      // Add worksheet to workbook
-      xlsx.utils.book_append_sheet(wb, ws, 'exported_data');
+        // Add worksheet to workbook
+        xlsx.utils.book_append_sheet(wb, ws, exportfileName);
 
-      // Define the file name
-      const fileName = "exported_data.xlsx";
+        const exportedDirectory = path.join(__dirname, '..', 'exported');
 
-      // Write the workbook to a file
-      xlsx.writeFile(wb, fileName, { bookType: 'xlsx' });
+        if (!fs.existsSync(exportedDirectory)) {
+          fs.mkdirSync(exportedDirectory, { recursive: true });
+        }
 
-      console.log("Excel file generated successfully:", fileName);
-    } catch (parseError) {
-      console.error("Error parsing JSON:", parseError);
-    }
+        // Construct the full file path
+        const filePath = path.join(__dirname, '..', 'exported', `${exportfileName}.xlsx`);
+
+        // Write the workbook to a file
+        xlsx.writeFile(wb, filePath, { bookType: 'xlsx' });
+
+        console.log("Excel file generated successfully:", filePath);
+        resolve({ filePath, tableDataFilePath });
+      } catch (parseError) {
+        console.error("Error parsing JSON:", parseError);
+        reject(parseError);
+      }
+    });
   });
 }
 
-// crawl()
+const sendMail = (recipientEmail, exportfileName, filePath, tableDataFilePath) => {
+  try {
 
-// const fetch = async () => {
-//   const [data] = loadDoc();
-//   console.log("🚀 ~ fetch ~ data:", data)
-//   let result = []
+    let transporter = nodemailer.createTransport({
+      service: 'Gmail', // Use your email service provider
+      host: 'smtp.gmail.com',
+      port: 465,
+      secure: true,
+      auth: {
+        user: process.env.SENDER_EMAIL, // Your email address
+        pass: process.env.SENDER_PASSWORD // Your password
+      }
+    });
 
-//   result = data.map(async (el) =>
-//     await crawl(el._rawData[0])
-//   );
+    const exportedDirectory = path.join(__dirname, '..', 'exported');
 
-//   return result
-// }
+    if (!fs.existsSync(exportedDirectory)) {
+      fs.mkdirSync(exportedDirectory, { recursive: true });
+    }
+
+    // Specify the path to your file here
+    const fileName = `${exportfileName}.xlsx`; // Specify the name of the file here
+
+
+    if (fs.existsSync(filePath)) {
+      // Read the file content
+      const fileContent = fs.readFileSync(filePath);
+
+      // Define email options
+      let mailOptions = {
+        from: process.env.SENDER_EMAIL, // Sender address
+        to: recipientEmail, // List of recipients
+        subject: 'File Attachment', // Subject line
+        text: 'Please find the attached file.', // Plain text body
+        attachments: [
+          {
+            filename: fileName,
+            content: fileContent
+          }
+        ]
+      };
+
+      // Send email
+      transporter.sendMail(mailOptions, (error, info) => {
+        if (error) {
+          console.error('Error occurred:', error);
+        } else {
+          console.log('Email sent:', info.response);
+
+          // Delete the file after sending the email
+          fs.unlink(filePath, (unlinkError) => {
+            if (unlinkError) {
+              console.error('Error deleting file:', unlinkError);
+            } else {
+              console.log('File deleted successfully:', filePath);
+            }
+          });
+
+          fs.unlink(tableDataFilePath, (unlinkError) => {
+            if (unlinkError) {
+              console.error('Error deleting file:', unlinkError);
+            } else {
+              console.log('File deleted successfully:', filePath);
+            }
+          });
+        }
+      });
+    }
+  } catch (err) {
+    console.log(err)
+  }
+}
 
 function splitUrls(text) {
   // This regex matches spaces (including tabs and spaces) and endline characters
@@ -236,21 +252,30 @@ const getDataByInput = async (domainInput) => {
   // Navigate the page to a URL
   await page.goto('https://tracuutenmien.gov.vn/tra-cuu-thong-tin-ten-mien');
 
-  fs.writeFileSync('tableData.json', '[]')
+  const tableDataDirectory = path.join(__dirname, '..', 'tableData'); // Get the full path to the directory
+  const tableDataFilePath = path.join(tableDataDirectory, 'tableData.json');
+
+  // Create the directory if it doesn't exist
+  if (!fs.existsSync(tableDataDirectory)) {
+    fs.mkdirSync(tableDataDirectory, { recursive: true });
+  }
+
+  fs.writeFileSync(tableDataFilePath, '[]');
 
   for (const domain of domains) {
-    const data = await crawl(page, domain);
+    const data = await crawl(page, domain, tableDataFilePath);
     results.push(data);
   }
 
   await browser.close();
 
-  exportFile();
+  const exportfileName = `exported_data`
+  exportFile(exportfileName, tableDataFilePath);
 
   return results
 }
 
-const getDataBySheet = async (sheet, startIndex) => {
+const getDataBySheet = async (sheet, handleDeleteUploadedFile) => {
   console.time("getDataBySheet")
   const domains = sheet.map((item) => Object.values(item)[0])
   const batchCount = Math.ceil(domains.length / 10);
@@ -260,8 +285,6 @@ const getDataBySheet = async (sheet, startIndex) => {
   for (let i = 0; i < batchCount; i++) {
     batches.push(domains.slice(i * 10, (i + 1) * 10));
   }
-
-  // batches.push(domains.slice(startIndex, startIndex + 10));
 
   const results = []
 
@@ -274,11 +297,19 @@ const getDataBySheet = async (sheet, startIndex) => {
   // Set screen size
   await page.setViewport({ width: 1080, height: 1024 });
 
-  fs.writeFileSync('tableData.json', '[]')
+  const tableDataDirectory = path.join(__dirname, '..', 'tableData'); // Get the full path to the directory
+  const tableDataFilePath = path.join(tableDataDirectory, 'tableData.json');
+
+  // Create the directory if it doesn't exist
+  if (!fs.existsSync(tableDataDirectory)) {
+    fs.mkdirSync(tableDataDirectory, { recursive: true });
+  }
+
+  fs.writeFileSync(tableDataFilePath, '[]');
 
   for (let i = 0; i < batches.length; i++) {
     for (const domain of batches[i]) {
-      const data = await crawl(page, domain);
+      const data = await crawl(page, domain, tableDataFilePath);
 
       results.push(data);
     }
@@ -288,9 +319,109 @@ const getDataBySheet = async (sheet, startIndex) => {
 
   console.timeEnd("getDataBySheet")
 
-  exportFile();
+  const exportfileName = `exported_data`
+  exportFile(exportfileName, tableDataFilePath)
+    .then(() => handleDeleteUploadedFile())
+    .catch(error => console.error('Error:', error));
 
   return results
 }
 
-module.exports = { getDataByInput, fetch, getDataBySheet }
+const getDataByInputEmail = async (domainInput, recipientEmail) => {
+  formQueue.push(async () => {
+    const domains = splitUrls(domainInput)
+
+    const browser = await puppeteer.launch(puppeteerOptions);
+    const page = await browser.newPage();
+
+    // Navigate the page to a URL
+    await page.goto('https://tracuutenmien.gov.vn/tra-cuu-thong-tin-ten-mien');
+
+    const uniqueId = uuidv4();
+
+    const tableDataDirectory = path.join(__dirname, '..', 'tableData'); // Get the full path to the directory
+    const tableDataFilePath = path.join(tableDataDirectory, `tableData_${timestamp}_${uniqueId}.json`.substring(0, 31));
+
+    // Create the directory if it doesn't exist
+    if (!fs.existsSync(tableDataDirectory)) {
+      fs.mkdirSync(tableDataDirectory, { recursive: true });
+    }
+
+    fs.writeFileSync(tableDataFilePath, '[]');
+
+    for (const domain of domains) {
+      await crawl(page, domain, tableDataFilePath);
+    }
+
+    await browser.close();
+
+    const exportfileName = `exported_data_${timestamp}_${uniqueId}`.substring(0, 31);
+
+    exportFile(exportfileName, tableDataFilePath)
+      .then(({ filePath, tableDataFilePath }) => sendMail(recipientEmail, exportfileName, filePath, tableDataFilePath))
+      .catch(error => console.error('Error:', error));
+
+    processNextForm();
+  })
+
+  if (formQueue.length === 1) {
+    processNextForm();
+  }
+}
+
+const getDataBySheetEmail = async (sheet, recipientEmail, handleDeleteUploadedFile) => {
+  formQueue.push(async () => {
+    const domains = sheet.map((item) => Object.values(item)[0])
+    const batchCount = Math.ceil(domains.length / 10);
+    const batches = [];
+
+    // Divide URLs into batches of 10
+    for (let i = 0; i < batchCount; i++) {
+      batches.push(domains.slice(i * 10, (i + 1) * 10));
+    }
+
+    const browser = await puppeteer.launch(puppeteerOptions);
+    const page = await browser.newPage();
+
+    // Navigate the page to a URL
+    await page.goto('https://tracuutenmien.gov.vn/tra-cuu-thong-tin-ten-mien');
+
+    // Set screen size
+    await page.setViewport({ width: 1080, height: 1024 });
+
+    const uniqueId = uuidv4();
+
+    const tableDataDirectory = path.join(__dirname, '..', 'tableData'); // Get the full path to the directory
+    const tableDataFilePath = path.join(tableDataDirectory, `tableData_${timestamp}_${uniqueId}.json`.substring(0, 31));
+
+    // Create the directory if it doesn't exist
+    if (!fs.existsSync(tableDataDirectory)) {
+      fs.mkdirSync(tableDataDirectory, { recursive: true });
+    }
+
+    fs.writeFileSync(tableDataFilePath, '[]');
+
+    for (let i = 0; i < batches.length; i++) {
+      for (const domain of batches[i]) {
+        await crawl(page, domain, tableDataFilePath);
+      }
+    }
+
+    await browser.close();
+
+    const exportfileName = `exported_data_${timestamp}_${uniqueId}`.substring(0, 31);
+
+    exportFile(exportfileName, tableDataFilePath)
+      .then(({ filePath, tableDataFilePath }) => sendMail(recipientEmail, exportfileName, filePath, tableDataFilePath))
+      .then(() => handleDeleteUploadedFile())
+      .catch(error => console.error('Error:', error));
+
+    processNextForm();
+  })
+
+  if (formQueue.length === 1) {
+    processNextForm();
+  }
+}
+
+module.exports = { getDataByInput, fetch, getDataBySheet, getDataByInputEmail, getDataBySheetEmail }

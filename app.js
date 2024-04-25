@@ -18,8 +18,6 @@ app.get("/", async function (req, res) {
 });
 
 app.post('/search-by-input', async (req, res) => {
-  console.log('req.body', req.body)
-
   const domainInput = req.body.domain
 
   const { getDataByInput } = require('./src/index')
@@ -43,7 +41,15 @@ app.post('/upload', upload.single('file'), async (req, res) => {
 
     const { getDataBySheet } = require('./src/index')
 
-    const dataList = await getDataBySheet(columnData)
+    const dataList = await getDataBySheet(columnData, () => {
+      fs.unlink(req.file.path, (err) => {
+        if (err) {
+          console.error('Error deleting file:', err);
+        } else {
+          console.log('File deleted successfully:', req.file.path);
+        }
+      });
+    })
 
     res.render("result", { dataList })
   } catch (error) {
@@ -52,22 +58,8 @@ app.post('/upload', upload.single('file'), async (req, res) => {
   }
 })
 
-// app.get('/result', (req, res) => {
-//   const page = parseInt(req.query.page) || 1;
-//   const perPage = 10;
-//   const startIndex = (page - 1) * perPage;
-//   const endIndex = page * perPage;
-
-//   res.render('result', { 
-//       data: crawledData, 
-//       startIndex, 
-//       endIndex,
-//       currentPage: page
-//   });
-// });
-
 app.get('/download', (req, res) => {
-  const filePath = './exported_data.xlsx'; // Specify the path to your file here
+  const filePath = './exported/exported_data.xlsx'; // Specify the path to your file here
   const fileName = 'exported_data.xlsx'; // Specify the name of the file here
 
   const fileStream = fs.createReadStream(filePath);
@@ -81,6 +73,46 @@ app.get('/download', (req, res) => {
   fileStream.pipe(res);
 })
 
+app.post('/search-by-input-email', async (req, res) => {
+  res.render("result-email")
+
+  const domainInput = req.body.domain
+
+  const { getDataByInputEmail } = require('./src/index')
+
+  await getDataByInputEmail(domainInput, req.body.email)
+})
+
+app.post('/upload-email', upload.single('file'), async (req, res) => {
+  if (!req.file) {
+    return res.status(400).send('No files were uploaded.');
+  }
+
+  try {
+    res.render("result-email")
+
+    const workbook = xlsx.readFile(req.file.path);
+    const sheetName = workbook.SheetNames[0];
+    const sheet = workbook.Sheets[sheetName];
+    const columnData = xlsx.utils.sheet_to_json(sheet);
+
+    const { getDataBySheetEmail } = require('./src/index')
+
+    await getDataBySheetEmail(columnData, req.body.email, () => {
+      fs.unlink(req.file.path, (err) => {
+        if (err) {
+          console.error('Error deleting file:', err);
+        } else {
+          console.log('File deleted successfully:', req.file.path);
+        }
+      });
+    })
+
+  } catch (error) {
+    console.error('Error:', error);
+    res.status(500).send('Error processing the file.');
+  }
+})
 
 app.listen(port, () => {
   console.log(`Example app listening on port ${port}`)
