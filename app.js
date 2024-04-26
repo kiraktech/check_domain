@@ -5,13 +5,14 @@ const xlsx = require('xlsx');
 const multer = require('multer')
 const upload = multer({ dest: 'uploads/' })
 const fs = require('fs-extra')
+require('dotenv').config()
 
 var app = express();
 app.use(bodyParser.json());
 app.use(express.urlencoded({ extended: false }))
 app.set("views", path.join(__dirname, "views"));
 app.set('view engine', 'ejs');
-var port = process.env.PORT || 3000;
+var port = process.env.PORT || 3009;
 
 app.get("/", async function (req, res) {
   res.render("home");

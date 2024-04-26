@@ -22,8 +22,8 @@ const puppeteerOptions = {
     '--no-sandbox',
     '--no-zygote',
     '--deterministic-fetch',
-    '--disable-features=IsolateOrigins',
     '--disable-site-isolation-trials',
+    '--disable-features=site-per-process'
     // '--single-process',
   ],
 }
@@ -64,41 +64,49 @@ const handleDataWithFile = (tableData, tableDataFilePath) => {
 async function crawl(page, url, tableDataFilePath) {
   if (!url) return { url: '', data: [] }
   // Launch the browser and open a new blank page
+  try {
+    await page.waitForSelector('body')
 
-  await page.waitForSelector('body')
+    // Type into search box
+    await page.type('#header-search__search-bar .input-group input', url);
 
-  // Type into search box
-  await page.type('#header-search__search-bar .input-group input', url);
+    // Wait and click on first result
+    const searchResultSelector = '.input-group-append button';
+    await page.waitForSelector(searchResultSelector);
+    await Promise.all([
+      await page.click(searchResultSelector),
+      await page.waitForNavigation(),
+    ])
 
-  // Wait and click on first result
-  const searchResultSelector = '.input-group-append button';
-  await page.waitForSelector(searchResultSelector);
-  await Promise.all([
-    await page.click(searchResultSelector),
-    await page.waitForNavigation(),
-  ])
+    // Locate the full title with a unique string
+    await page.waitForSelector('.card-body')
 
-  // Locate the full title with a unique string
-  await page.waitForSelector('.card-body')
+    const tableData = await page.evaluate((pageUrl) => {
+      const rows = document.querySelectorAll('.card-body table tr'); // Chọn tất cả các hàng trong bảng
+      return {
+        url: pageUrl, data: Array.from(rows, row => {
+          // const columns = row.querySelectorAll('td'); // Chọn tất cả các ô dữ liệu trong hàng
+          // return Array.from(columns, column => column.innerText); // Trả về văn bản của mỗi ô
 
-  const tableData = await page.evaluate((pageUrl) => {
-    const rows = document.querySelectorAll('.card-body table tr'); // Chọn tất cả các hàng trong bảng
-    return {
-      url: pageUrl, data: Array.from(rows, row => {
-        // const columns = row.querySelectorAll('td'); // Chọn tất cả các ô dữ liệu trong hàng
-        // return Array.from(columns, column => column.innerText); // Trả về văn bản của mỗi ô
+          const column = row.querySelector('td:last-child'); // Chọn tất cả các ô dữ liệu trong hàng
+          return column.innerText; // Trả về văn bản của mỗi ô
+        })
+      };
+    }, url);
+    console.log(tableData.url)
+    console.table(tableData.data)
 
-        const column = row.querySelector('td:last-child'); // Chọn tất cả các ô dữ liệu trong hàng
-        return column.innerText; // Trả về văn bản của mỗi ô
-      })
-    };
-  }, url);
-  console.log(tableData.url)
-  console.table(tableData.data)
+    handleDataWithFile(tableData, tableDataFilePath);
 
-  handleDataWithFile(tableData, tableDataFilePath);
+    return tableData
+  } catch (err) {
+    console.log("🚀 ~ crawl ~ err:", err)
 
-  return tableData
+    const tableData = { url: url, data: ['null', 'null', 'null', 'null', 'null'] }
+    handleDataWithFile(tableData, tableDataFilePath);
+
+    return tableData
+  }
 };
 
 const exportFile = (exportfileName, tableDataFilePath) => {

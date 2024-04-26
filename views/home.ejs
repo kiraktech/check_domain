@@ -22,6 +22,7 @@
   <div class="tab-content" id="myTabContent">
     <div class="tab-pane fade show active bg-white" id="tab-1" role="tabpanel" aria-labelledby="nav-tab-1">
       <form action="/search-by-input" method="POST" class="p-2">
+        <p class="fs-4 text-danger">* Lưu ý: Chỉ sử dụng khi có ít hơn 10 domain và muốn xem kết quả nhanh chóng. Nếu có nhiều hơn, vui lòng sử dụng tính năng gửi kết quả qua Email!</p>
         <div class="mb-3">
           <label for="domain" class="form-label">Domain:</label>
           <textarea class="form-control border border-secondary" id="domain" name="domain" rows="4" cols="50" placeholder="vtv.vn tuoitre.vn"></textarea>
@@ -31,6 +32,7 @@
     </div>
     <div class="tab-pane fade bg-white" id="tab-2" role="tabpanel" aria-labelledby="nav-tab-2">
       <form action="/upload" method="POST" enctype="multipart/form-data" class="p-2">
+        <p class="fs-4 text-danger">* Lưu ý: Chỉ sử dụng khi có ít hơn 10 domain và muốn xem kết quả nhanh chóng. Nếu có nhiều hơn, vui lòng sử dụng tính năng gửi kết quả qua Email!</p>
         <div class="mb-3">
           <label class="form-label" for="file">File:</label>
           <input class="form-control border border-secondary" id="file" name="file" type="file">
